@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build a release for"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build distributions, image and GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve the tag being released
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+          ls -l dist/
+
+      - name: Check the built distributions
+        run: |
+          python -m pip install --upgrade twine
+          twine check dist/*
+
+      - name: Smoke-test the wheel
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install --no-cache-dir dist/*.whl
+          /tmp/smoke/bin/quakewatch --version
+          /tmp/smoke/bin/quakewatch --help
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build the Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: |
+            agentbench-quakewatch-v2-01-a:${{ steps.tag.outputs.name }}
+            agentbench-quakewatch-v2-01-a:local
+
+      - name: Smoke-test the Docker image
+        run: |
+          docker run --rm agentbench-quakewatch-v2-01-a:local --version
+          docker run --rm agentbench-quakewatch-v2-01-a:local list --window day --min-mag 5
+
+      - name: Upload the distributions as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ steps.tag.outputs.name }}
+          path: dist/
+          if-no-files-found: error
+
+      - name: Create the GitHub Release with the sdist and wheel attached
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.tag.outputs.name }}" \
+            --title "quakewatch ${{ steps.tag.outputs.name }}" \
+            --generate-notes \
+            dist/*.tar.gz dist/*.whl \
+            || gh release upload "${{ steps.tag.outputs.name }}" \
+                 dist/*.tar.gz dist/*.whl --clobber
