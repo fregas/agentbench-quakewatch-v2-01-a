@@ -147,6 +147,15 @@ overlap. The differences that matter in practice:
   Oklahoma), which EMSC does not carry. EMSC is correspondingly denser for small
   Euro-Mediterranean events. Below roughly M4.5 the two catalogs are mostly
   *disjoint*, not disagreeing; a fair comparison uses `--min-mag 4.5` or higher.
+- **EMSC re-publishes other agencies' solutions, USGS's included.** EMSC is an
+  aggregator: each event carries an `auth` field naming the contributing
+  agency, and `NEIC` there *is* the USGS National Earthquake Information
+  Center. So a subset of `compare`'s matches are not two independent
+  measurements of one earthquake but the same solution reaching quakewatch by
+  two routes, which is why those pairs show a magnitude difference of exactly
+  `0.00` and a separation of `0.0 km`. Genuinely independent disagreement shows
+  up in the pairs sourced from regional networks. quakewatch keeps only the
+  preferred magnitude, not `auth`, so it cannot currently label which is which.
 - **Magnitude scale.** Neither feed is restricted to one magnitude type: USGS
   mixes `md`, `ml`, `mb` and `mww` depending on network and size, EMSC mixes
   `ml`, `mb` and `mw`. Differences of 0.1–0.3 between the two solutions for the
