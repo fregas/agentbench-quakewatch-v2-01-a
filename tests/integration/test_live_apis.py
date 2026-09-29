@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from quakewatch.cache import ResponseCache
+from quakewatch.compare import compare
 from quakewatch.export import render
 from quakewatch.http import HttpFetcher
 from quakewatch.models import Event, Source, Window, utcnow
@@ -70,6 +71,19 @@ def test_emsc_204_on_an_impossible_filter(live_fetcher: HttpFetcher) -> None:
     """EMSC answers an empty result set with 204 No Content, not an empty feed."""
     events = EmscSource().fetch(live_fetcher, Query(window=Window.HOUR, min_mag=9.5))
     assert events == []
+
+
+def test_both_sources_agree_on_large_recent_events(live_fetcher: HttpFetcher) -> None:
+    query = Query(window=Window.WEEK, min_mag=5.0)
+    results = fetch_events(live_fetcher, query, resolve_sources("both"))
+    usgs_events, emsc_events = results[Source.USGS], results[Source.EMSC]
+    assert usgs_events and emsc_events
+    report = compare(usgs_events, emsc_events)
+    # Above M5 the two catalogs are essentially complete, so most USGS events
+    # should find an EMSC counterpart.
+    assert report.matched_count >= max(1, len(usgs_events) // 2)
+    if report.mean_abs_mag_diff is not None:
+        assert report.mean_abs_mag_diff < 1.0
 
 
 def test_radius_filter_against_a_live_query(live_fetcher: HttpFetcher) -> None:

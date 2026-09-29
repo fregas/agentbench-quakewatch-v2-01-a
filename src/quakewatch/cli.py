@@ -11,10 +11,15 @@ from click.decorators import FC
 
 from quakewatch import __version__
 from quakewatch.cache import DEFAULT_CACHE_DIR, DEFAULT_TTL_SECONDS, ResponseCache
+from quakewatch.compare import (
+    DEFAULT_DISTANCE_TOLERANCE_KM,
+    DEFAULT_TIME_TOLERANCE_S,
+    compare,
+)
 from quakewatch.export import FORMATS, format_for_path, write
 from quakewatch.http import FetchError, HttpFetcher
 from quakewatch.models import Event, Source, Window
-from quakewatch.render import Output, render_events
+from quakewatch.render import Output, render_comparison, render_events
 from quakewatch.service import fetch_events, merge, resolve_sources
 from quakewatch.sources import Query
 
@@ -185,6 +190,48 @@ def list_command(
         ctx.out,
         title=f"{len(events)} events, past {window}, source={source}",
     )
+
+
+@cli.command("compare")
+@filter_options
+@click.option(
+    "--time-tolerance",
+    type=float,
+    default=DEFAULT_TIME_TOLERANCE_S,
+    show_default=True,
+    help="Maximum origin-time difference, in seconds, for a match.",
+)
+@click.option(
+    "--distance-tolerance",
+    type=float,
+    default=DEFAULT_DISTANCE_TOLERANCE_KM,
+    show_default=True,
+    help="Maximum epicenter separation, in km, for a match.",
+)
+@click.option(
+    "--limit", type=int, default=20, show_default=True, help="Matches to display."
+)
+@click.pass_obj
+def compare_command(
+    ctx: Context,
+    window: str,
+    min_mag: float | None,
+    near: str | None,
+    radius_km: float | None,
+    time_tolerance: float,
+    distance_tolerance: float,
+    limit: int,
+) -> None:
+    """Cross-match the USGS and EMSC catalogs over the same window."""
+    query = build_query(window, min_mag, near, radius_km)
+    results = collect(ctx, query, "both")
+    report = compare(
+        results.get(Source.USGS, []),
+        results.get(Source.EMSC, []),
+        time_tolerance_s=time_tolerance,
+        distance_tolerance_km=distance_tolerance,
+    )
+    render_comparison(report, ctx.out, limit=limit)
 
 
 @cli.command("export")

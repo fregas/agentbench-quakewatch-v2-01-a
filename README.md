@@ -75,6 +75,35 @@ quakewatch --no-cache list --window day --min-mag 5 --limit 10
 rich table; when stdout is redirected or piped it becomes tab-separated plain
 text, so `quakewatch list ... | cut -f2` works as expected.
 
+### `quakewatch compare`
+
+Cross-match the two catalogs over the same window. Two events are considered the
+same earthquake when their origin times are within **±60 s** and their epicenters
+within **50 km**; both tolerances are adjustable. Candidate pairs are consumed
+nearest-first and each event is matched at most once, so a dense aftershock
+sequence does not produce duplicate pairings.
+
+```bash
+quakewatch compare --window day --min-mag 4.5
+quakewatch compare --window hour --time-tolerance 30 --distance-tolerance 25
+```
+
+```
+ matching within +/-60s and 50 km
+ metric                       value
+ usgs events                     38
+ emsc events                     51
+ matched                         31
+ usgs only                        7
+ emsc only                       20
+ mean mag diff (emsc-usgs)    +0.06
+ mean abs mag diff             0.16
+ max abs mag diff              0.60
+```
+
+The report prints matched and unmatched counts per catalog, then the signed
+magnitude differences (EMSC minus USGS) for each matched pair.
+
 ### `quakewatch export`
 
 Write the same filtered event set to a file as CSV, JSON or GeoJSON. The format
@@ -110,14 +139,23 @@ ships a `py.typed` marker.
 
 ## Known differences between USGS and EMSC
 
-The two catalogs are independent, so listing both sources will never give a
-perfect overlap. The differences that matter in practice:
+The two catalogs are independent, so `compare` will never report a perfect
+overlap. The differences that matter in practice:
 
 - **Regional completeness.** USGS's `all_*` feeds include very small local
   events from US regional networks (M0–M2 in California, Alaska, Hawaii,
   Oklahoma), which EMSC does not carry. EMSC is correspondingly denser for small
   Euro-Mediterranean events. Below roughly M4.5 the two catalogs are mostly
   *disjoint*, not disagreeing; a fair comparison uses `--min-mag 4.5` or higher.
+- **EMSC re-publishes other agencies' solutions, USGS's included.** EMSC is an
+  aggregator: each event carries an `auth` field naming the contributing
+  agency, and `NEIC` there *is* the USGS National Earthquake Information
+  Center. So a subset of `compare`'s matches are not two independent
+  measurements of one earthquake but the same solution reaching quakewatch by
+  two routes, which is why those pairs show a magnitude difference of exactly
+  `0.00` and a separation of `0.0 km`. Genuinely independent disagreement shows
+  up in the pairs sourced from regional networks. quakewatch keeps only the
+  preferred magnitude, not `auth`, so it cannot currently label which is which.
 - **Magnitude scale.** Neither feed is restricted to one magnitude type: USGS
   mixes `md`, `ml`, `mb` and `mww` depending on network and size, EMSC mixes
   `ml`, `mb` and `mw`. Differences of 0.1–0.3 between the two solutions for the
@@ -135,7 +173,7 @@ perfect overlap. The differences that matter in practice:
 - **Place naming.** USGS uses a distance-and-bearing description relative to the
   nearest settlement ("10 km WNW of The Geysers, CA"); EMSC uses coarser
   Flynn–Engdahl region names ("Potosi, Bolivia"). The strings are not
-  comparable: the two catalogs can only be lined up on time and location.
+  comparable, which is why `compare` matches on time and distance only.
 - **Filtering fidelity.** The USGS summary feeds take no query parameters, so
   quakewatch filters them client-side. EMSC's FDSN service applies magnitude and
   radius filters upstream. Every result is re-checked locally against the same
