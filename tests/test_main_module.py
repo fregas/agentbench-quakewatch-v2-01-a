@@ -14,7 +14,7 @@ def test_runs_as_a_module() -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert "list" in result.stdout
+    assert "compare" in result.stdout
 
 
 def test_module_reports_its_version() -> None:

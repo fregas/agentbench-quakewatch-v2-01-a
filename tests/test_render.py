@@ -5,11 +5,14 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from quakewatch.compare import ComparisonReport, Match, compare
 from quakewatch.models import Source
 from quakewatch.render import (
     EVENT_HEADERS,
+    MATCH_HEADERS,
     Output,
     is_tty,
+    render_comparison,
     render_events,
 )
 from tests.conftest import make_event
@@ -148,3 +151,111 @@ def test_empty_listing_says_so(plain: bool) -> None:
     out = out_for(plain=plain)
     render_events([], out)
     assert "no events matched" in text(out)
+
+
+# --- comparison reports ---------------------------------------------------
+
+
+def build_report() -> ComparisonReport:
+    return compare(
+        [make_event(id="u1", time=T0, magnitude=4.5, place="Tokyo, Japan")],
+        [
+            make_event(
+                id="e1",
+                time=T0 + timedelta(seconds=8),
+                magnitude=4.8,
+                lat=0.05,
+                source=Source.EMSC,
+            ),
+            make_event(
+                id="e2", time=T0, magnitude=3.0, lat=40.0, lon=40.0, source=Source.EMSC
+            ),
+        ],
+    )
+
+
+def test_plain_comparison_reports_counts_and_stats() -> None:
+    out = out_for(plain=True)
+    render_comparison(build_report(), out)
+    body = text(out)
+    assert "matching within +/-60s and 50 km" in body
+    for expected in (
+        "usgs events\t1",
+        "emsc events\t2",
+        "matched\t1",
+        "usgs only\t0",
+        "emsc only\t1",
+        "mean mag diff (emsc-usgs)\t+0.30",
+        "mean abs mag diff\t0.30",
+        "max abs mag diff\t0.30",
+    ):
+        assert expected in body
+
+
+def test_plain_comparison_lists_matched_pairs() -> None:
+    out = out_for(plain=True)
+    render_comparison(build_report(), out)
+    rows = rows_of(text(out))
+    header_idx = next(i for i, r in enumerate(rows) if r[0] == "time (UTC)")
+    assert rows[header_idx] == list(MATCH_HEADERS)
+    assert rows[header_idx + 1] == [
+        "2026-09-29 12:00:00",
+        "4.5",
+        "4.8",
+        "+0.30",
+        "+8.0",
+        "5.6",
+        "Tokyo, Japan",
+    ]
+
+
+def test_rich_comparison_draws_tables() -> None:
+    out = out_for(plain=False)
+    render_comparison(build_report(), out)
+    body = text(out)
+    assert "matched events (showing 1 of 1)" in body
+    assert any(ch in body for ch in "─━┃│")
+
+
+@pytest.mark.parametrize("plain", [True, False])
+def test_comparison_with_no_matches_prints_only_the_summary(plain: bool) -> None:
+    out = out_for(plain=plain)
+    render_comparison(compare([make_event(id="u1")], []), out)
+    body = text(out)
+    assert "matched" in body
+    assert "usgs mag" not in body
+
+
+def test_unknown_statistics_render_as_dashes() -> None:
+    out = out_for(plain=True)
+    render_comparison(ComparisonReport(), out)
+    assert "mean mag diff (emsc-usgs)\t-" in text(out)
+
+
+def test_match_list_is_limited_and_says_how_many_were_hidden() -> None:
+    matches = [
+        Match(
+            usgs=make_event(id=f"u{i}", time=T0 + timedelta(hours=i), magnitude=4.0),
+            emsc=make_event(
+                id=f"e{i}",
+                time=T0 + timedelta(hours=i),
+                magnitude=4.1,
+                source=Source.EMSC,
+            ),
+        )
+        for i in range(5)
+    ]
+    out = out_for(plain=True)
+    render_comparison(ComparisonReport(matches=matches), out, limit=2)
+    body = text(out)
+    assert "showing 2 of 5" in body
+    assert "... 3 more matches not shown" in body
+
+
+@pytest.mark.parametrize("plain", [True, False])
+def test_comparison_tolerances_are_echoed(plain: bool) -> None:
+    out = out_for(plain=plain)
+    render_comparison(
+        compare([], [], time_tolerance_s=30.0, distance_tolerance_km=25.0), out
+    )
+    assert "+/-30s and 25 km" in text(out)

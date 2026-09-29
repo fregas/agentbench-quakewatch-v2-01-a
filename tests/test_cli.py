@@ -121,7 +121,7 @@ def test_version(runner: CliRunner) -> None:
 def test_help_lists_every_command(runner: CliRunner, flag: str) -> None:
     result = runner.invoke(cli, [flag])
     assert result.exit_code == 0
-    for command in ("list", "export"):
+    for command in ("list", "compare", "export"):
         assert command in result.output
 
 
@@ -265,6 +265,54 @@ def test_cache_files_land_in_the_requested_directory(
     cache_dir = tmp_path / "custom"
     runner.invoke(cli, ["--cache-dir", str(cache_dir), "list"])
     assert list(cache_dir.glob("*.json"))
+
+
+# --- compare --------------------------------------------------------------
+
+
+def test_compare_prints_a_report(
+    runner: CliRunner, base_args: list[str], mocked_apis: dict[str, respx.Route]
+) -> None:
+    result = runner.invoke(cli, [*base_args, "compare", "--window", "day"])
+    assert result.exit_code == 0, result.output
+    assert "matched" in result.output
+    assert "usgs events" in result.output
+    assert "emsc events" in result.output
+
+
+def test_compare_always_queries_both_sources(
+    runner: CliRunner, base_args: list[str], mocked_apis: dict[str, respx.Route]
+) -> None:
+    runner.invoke(cli, [*base_args, "compare"])
+    assert mocked_apis["usgs"].call_count == 1
+    assert mocked_apis["emsc"].call_count == 1
+
+
+def test_compare_echoes_custom_tolerances(
+    runner: CliRunner, base_args: list[str], mocked_apis: dict[str, respx.Route]
+) -> None:
+    result = runner.invoke(
+        cli,
+        [*base_args, "compare", "--time-tolerance", "30", "--distance-tolerance", "25"],
+    )
+    assert result.exit_code == 0
+    assert "+/-30s and 25 km" in result.output
+
+
+def test_compare_respects_min_mag(
+    runner: CliRunner, base_args: list[str], mocked_apis: dict[str, respx.Route]
+) -> None:
+    result = runner.invoke(cli, [*base_args, "compare", "--min-mag", "9.9"])
+    assert result.exit_code == 0
+    assert "matched\t0" in result.output
+
+
+def test_compare_limit_is_honoured(
+    runner: CliRunner, base_args: list[str], mocked_apis: dict[str, respx.Route]
+) -> None:
+    result = runner.invoke(cli, [*base_args, "compare", "--limit", "1"])
+    assert result.exit_code == 0
+    assert "showing 1 of" in result.output or "matched\t0" in result.output
 
 
 # --- export ---------------------------------------------------------------
